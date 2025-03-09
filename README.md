@@ -26,6 +26,10 @@
   <script src="require.js"></script>
 
   <script>
+    // `three` is a CJS module
+    const THREE = require('three')
+    console.log(THREE)
+
     // add ESM-to-CJS transform
     const esmToCjs = require('./esm-to-cjs.js')
     require.transforms.push({
@@ -33,11 +37,7 @@
       transform: m => esmToCjs(m.body, m.name, m.path)
     })
 
-    // Three.js is an ESM module
-    const THREE = require('three')
-    console.log(THREE)
-
-    // Canvas-confetti is an ESM module as well
+    // `confetti`is an ESM module
     const confetti = require('confetti')
     confetti.default()
 
@@ -48,7 +48,7 @@
       transform: m => amaro.transformSync(m.body).code
     })
 
-    // Confetti.ts is a TypeScript module
+    // `confetti.ts` is a TypeScript module
     const confettiTs = require('confetti.ts')
     confettiTs.throwConfetti()
   </script>
