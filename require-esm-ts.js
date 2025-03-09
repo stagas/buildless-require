@@ -21,7 +21,10 @@ if (document.readyState === 'loading') {
 
 function runTypeScriptScripts() {
   document.querySelectorAll('script[type="text/typescript"]').forEach(script => {
-    if (!script.src) {
+    if (script.src) {
+      require(script.src)
+    }
+    else {
       const m = require.eval({
         body: script.textContent,
         name: '',

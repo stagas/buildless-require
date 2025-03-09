@@ -26,13 +26,14 @@
   <script src="require.js"></script>
 
   <!-- Helper script that enables ESM-to-CJS and TypeScript transforms -->
-  <!-- <script src="require-esm-ts.js"></script>
+  <!-- <script src="require-esm-ts.js"></script> -->
 
-  <script type="text/typescript">
+  <!-- <script src="./client.ts" type="text/typescript"></script> -->
+
+  <!-- <script type="text/typescript">
     import * as confetti from 'confetti.ts'
     confetti.throwConfetti()
-  </script>
-  -->
+  </script> -->
 
   <script>
     // `three` is a CJS module

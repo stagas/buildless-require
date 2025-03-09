@@ -64,7 +64,7 @@
     m.require = require.bind(null, m.path)
     m.fn = new Function('module', 'exports', 'require', m.body)
     m.didRun = false
-    m.run = function () {
+    m.run = () => {
       m.didRun = true
       m.fn(m, m.exports, m.require)
     }
