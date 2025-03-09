@@ -7,7 +7,7 @@
 
   require.paths = ['/node_modules']
 
-  require.debug = true
+  require.debug = false
 
   require.modules = Object.create(null)
 
@@ -68,9 +68,9 @@
 
     for (const [index, transform] of require.transforms.entries()) {
       if (transform.test(m)) {
-        console.log(`Before [${index}]`, m.body)
+        if (require.debug) console.log(`Before [${index}]`, m.body)
         m.body = transform.transform(m)
-        console.log(`After [${index}]`, m.body)
+        if (require.debug) console.log(`After [${index}]`, m.body)
       }
     }
 
