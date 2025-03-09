@@ -1,4 +1,4 @@
-Buildless CommonJS require and ESM imports mix with importmaps, for the browser.
+## Buildless CommonJS require and ESM imports mix with importmaps, for the browser.
 
 ```html
 <!doctype html>
@@ -33,3 +33,11 @@ Buildless CommonJS require and ESM imports mix with importmaps, for the browser.
 
 </html>
 ```
+
+## Support me
+
+<a href="https://www.buymeacoffee.com/stagas" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-red.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
+## License
+
+MIT
