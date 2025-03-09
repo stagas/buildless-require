@@ -42,9 +42,9 @@
     confetti.default()
 
     // add TypeScript type-stripping transform
-    const amaro = require('amaro')
+    const amaro = require('amaro') // amaro is an ESM module
     require.transforms.unshift({
-      test: m => m.name.endsWith('.ts'),
+      test: m => m.path.endsWith('.ts'),
       transform: m => amaro.transformSync(m.body).code
     })
 
