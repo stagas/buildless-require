@@ -13,6 +13,16 @@
 
   require.transforms = []
 
+  require.transform = function (m) {
+    for (const [index, transform] of require.transforms.entries()) {
+      if (transform.test(m)) {
+        if (require.debug) console.log(`Before [${index}]`, m.body)
+        m.body = transform.transform(m)
+        if (require.debug) console.log(`After [${index}]`, m.body)
+      }
+    }
+  }
+
   require.resolve = function (name, parent) {
     if ('..' === name.substr(0, 2)) {
       var parentParts = parent.split('/')
@@ -47,6 +57,21 @@
     }
   }
 
+  require.eval = function (m) {
+    require.transform(m)
+
+    m.exports = {}
+    m.require = require.bind(null, m.path)
+    m.fn = new Function('module', 'exports', 'require', m.body)
+    m.didRun = false
+    m.run = function () {
+      m.didRun = true
+      m.fn(m, m.exports, m.require)
+    }
+
+    return m
+  }
+
   require.load = function (name, parent) {
     var path = require.resolve(name, parent)
 
@@ -66,18 +91,7 @@
     m.path = m.request.responseURL
     m.body = m.request.responseText
 
-    for (const [index, transform] of require.transforms.entries()) {
-      if (transform.test(m)) {
-        if (require.debug) console.log(`Before [${index}]`, m.body)
-        m.body = transform.transform(m)
-        if (require.debug) console.log(`After [${index}]`, m.body)
-      }
-    }
-
-    m.exports = {}
-    m.require = require.bind(null, m.path)
-    m.fn = new Function('module', 'exports', 'require', m.body)
-    m.didRun = false
+    require.eval(m)
 
     require.modules[m.path] = m
 
