@@ -8,7 +8,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>buildless require and ESM imports with importmaps</title>
+  <title>Buildless CJS+ESM+TS+Importmaps for the browser.</title>
   <link rel="stylesheet" href="style.css">
   <script type="importmap">
     {
