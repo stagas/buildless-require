@@ -1,4 +1,4 @@
-## Buildless CommonJS require and ESM imports mix with importmaps, for the browser.
+## Buildless CJS+ESM+TS+Importmaps for the browser.
 
 ```html
 <!doctype html>
@@ -13,8 +13,10 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "https://unpkg.com/three@0.174.0/build/three.cjs",
-        "confetti": "https://esm.sh/canvas-confetti@1.6.0"
+        "amaro": "https://esm.sh/amaro",
+        "confetti": "https://esm.sh/canvas-confetti@1.6.0",
+        "confetti.ts": "https://jsr.io/@adam/confetti/2.0.0/src/confetti/confetti.ts",
+        "three": "https://unpkg.com/three@0.174.0/build/three.cjs"
       }
     }
   </script>
@@ -22,12 +24,31 @@
 
 <body>
   <script src="require.js"></script>
+
   <script>
+    // add ESM-to-CJS transform
+    const esmToCjs = require('./esm-to-cjs.js')
+    require.transforms.push({
+      test: m => /\b(?:import|export)\b/.test(m.body),
+      transform: m => esmToCjs(m.body, m.name, m.path)
+    })
+
+    // Three
     const THREE = require('three')
     console.log(THREE)
 
     const confetti = require('confetti')
     confetti.default()
+
+    // add TypeScript type-stripping transform
+    const amaro = require('amaro')
+    require.transforms.unshift({
+      test: m => m.name.endsWith('.ts'),
+      transform: m => amaro.transformSync(m.body).code
+    })
+
+    const confettiTs = require('confetti.ts')
+    confettiTs.throwConfetti()
   </script>
 </body>
 

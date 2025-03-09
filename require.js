@@ -11,6 +11,8 @@
 
   require.modules = Object.create(null)
 
+  require.transforms = []
+
   require.resolve = function (name, parent) {
     if ('..' === name.substr(0, 2)) {
       var parentParts = parent.split('/')
@@ -60,11 +62,16 @@
 
     if (m.request === false) return m
 
+    m.name = name
     m.path = m.request.responseURL
     m.body = m.request.responseText
 
-    if (m.body.includes('import') || m.body.includes('export')) {
-      m.body = transformModuleSyntax(m.body, name, m.path)
+    for (const [index, transform] of require.transforms.entries()) {
+      if (transform.test(m)) {
+        console.log(`Before [${index}]`, m.body)
+        m.body = transform.transform(m)
+        console.log(`After [${index}]`, m.body)
+      }
     }
 
     m.exports = {}
@@ -94,272 +101,6 @@
     }
 
     return m.exports
-  }
-
-  function transformModuleSyntax(code, moduleName, currentPath) {
-    if (require.debug) console.log('Before transform:', code)
-
-    // Extract filename from path to use in default naming
-    const fileName = moduleName.split('/').pop().replace(/\.\w+$/, '')
-    const safeFileName = fileName.replace(/[^a-zA-Z0-9_]/g, '_')
-
-    // Function to resolve relative import paths against current module path
-    function resolveImportPath(importPath) {
-      if (!importPath) return importPath
-
-      if (importPath.startsWith('.') && currentPath) {
-        // This is a relative import that needs to be resolved against the current module's path
-        const currentDir = currentPath.substring(0, currentPath.lastIndexOf('/') + 1)
-        return new URL(importPath, currentDir).href
-      }
-
-      if (importPath.startsWith('/') && currentPath) {
-        // This is an absolute path that needs to be resolved against the origin of the current module
-        try {
-          const origin = new URL(currentPath).origin
-          return `${origin}${importPath}`
-        } catch (e) {
-          console.error('Failed to resolve absolute path:', e)
-        }
-      }
-
-      return importPath
-    }
-
-    // Replace import statements with destructuring
-    code = code.replace(/import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g,
-      function (match, importNames, importPath) {
-        const resolvedPath = resolveImportPath(importPath)
-        const entries = importNames.split(',').map(entry => {
-          const parts = entry.trim().split(/\s+as\s+/)
-          const importName = parts[0].trim()
-          const localName = parts[1]?.trim() || importName
-
-          if (importName === 'default') {
-            return `${localName}: _default`
-          }
-          return `${localName}: ${importName}`
-        })
-
-        return `const { ${entries.join(', ')} } = require('${resolvedPath}')`
-      }
-    )
-
-    // Replace import statements for default imports
-    code = code.replace(/import\s+([^{*\s,]+)\s+from\s+['"]([^'"]+)['"]/g,
-      function (match, importName, importPath) {
-        const resolvedPath = resolveImportPath(importPath)
-        return `const ${importName} = require('${resolvedPath}').default || require('${resolvedPath}')`
-      }
-    )
-
-    // Replace namespace imports
-    code = code.replace(/import\s+\*\s+as\s+([^\s]+)\s+from\s+['"]([^'"]+)['"]/g,
-      function (match, importName, importPath) {
-        const resolvedPath = resolveImportPath(importPath)
-        return `const ${importName} = require('${resolvedPath}')`
-      }
-    )
-
-    // Replace dynamic imports
-    code = code.replace(/import\s*\(([^)]+)\)/g, function (match, importExpr) {
-      // If it's a string literal, we can resolve it
-      if (importExpr.trim().startsWith("'") || importExpr.trim().startsWith('"')) {
-        const importPath = importExpr.trim().slice(1, -1)
-        const resolvedPath = resolveImportPath(importPath)
-        return `Promise.resolve(require('${resolvedPath}'))`
-      }
-      return `Promise.resolve(require(${importExpr}))`
-    })
-
-    // Handle export * from statements
-    code = code.replace(/export\s+\*\s+from\s+['"]([^'"]+)['"]/g,
-      function (match, importPath) {
-        const resolvedPath = resolveImportPath(importPath)
-        return `Object.assign(module.exports, require('${resolvedPath}')); Object.defineProperty(module.exports, 'default', { enumerable: false });`
-      }
-    )
-
-    // Handle named export from statements
-    code = code.replace(/export\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g,
-      function (match, exportNames, importPath) {
-        const resolvedPath = resolveImportPath(importPath)
-        const names = exportNames.split(',').map(n => n.trim())
-        const result = []
-
-        for (const name of names) {
-          if (name.includes(' as ')) {
-            const [sourceName, targetName] = name.split(' as ').map(n => n.trim())
-            if (sourceName === 'default') {
-              result.push(`Object.defineProperty(exports, '${targetName}', { enumerable: true, get: function() { return require('${resolvedPath}').default; } });`)
-            }
-            else {
-              result.push(`Object.defineProperty(exports, '${targetName}', { enumerable: true, get: function() { return require('${resolvedPath}').${sourceName}; } });`)
-            }
-          }
-          else if (name === 'default') {
-            result.push(`Object.defineProperty(module.exports, 'default', { enumerable: true, get: function() { return require('${resolvedPath}').default; } });`)
-          }
-          else {
-            result.push(`Object.defineProperty(exports, '${name}', { enumerable: true, get: function() { return require('${resolvedPath}').${name}; } });`)
-          }
-        }
-
-        return result.join('\n')
-      }
-    )
-
-    // Handle default exports of classes/functions
-    code = code.replace(/export\s+default\s+(class|function)(\s+[^\s(]+|\s*\([^)]*\)\s*{)/g, function (match, type, rest) {
-      if (rest.trim()[0] === '(') {
-        // Anonymous function with arguments: function() {}
-        return `module.exports.default = ${type}${rest}`
-      }
-      else {
-        // Named class/function: class Name {} or function name() {}
-        const name = rest.trim().split(/\s+/)[0]
-        return `${type}${rest}\nmodule.exports.default = ${name}`
-      }
-    })
-
-    // Handle anonymous default export with object or expression
-    code = code.replace(/export\s+default\s+({[^;]*}|[^;\s]+)/g,
-      'module.exports.default = $1'
-    )
-
-    // Handle regular named exports (let/const/var/function/class)
-    code = code.replace(/export\s+(const|let|var|function|class)\s+([^\s(=]+)/g,
-      function (match, type, name) {
-        return `${type} ${name}\nexports.${name} = ${name}`
-      }
-    )
-
-    // Handle destructured exports like export { a, b, c }
-    code = code.replace(/export\s+\{([^}]+)\}/g,
-      function (match, exportNames) {
-        const names = exportNames.split(',')
-        const result = []
-
-        for (const name of names) {
-          if (name.includes(' as ')) {
-            const [sourceName, targetName] = name.split(' as ').map(n => n.trim())
-            result.push(`exports.${targetName} = ${sourceName}`)
-          } else if (name.trim() === 'default') {
-            // If 'default' is exported, use the safe name pattern
-            const defaultVar = `_${safeFileName}_default`
-            result.push(`exports.default = typeof ${defaultVar} !== 'undefined' ? ${defaultVar} : module.exports.default`)
-          } else {
-            result.push(`exports.${name.trim()} = ${name.trim()}`)
-          }
-        }
-
-        return result.join('\n')
-      }
-    )
-
-    // Handle compact export syntax (without spaces) like: ;export{a as b,c as default};
-    code = code.replace(/(\W)export\{([^}]+)\}(\W)/g,
-      function (match, prefix, exportNames, suffix) {
-        const names = exportNames.split(',')
-        const transformedExports = []
-
-        for (const name of names) {
-          if (name.includes('as')) {
-            const [sourceName, targetName] = name.split(/\s*as\s*/) // Handle with or without spaces
-            transformedExports.push(`exports.${targetName.trim()} = ${sourceName.trim()}`)
-          }
-          else {
-            transformedExports.push(`exports.${name.trim()} = ${name.trim()}`)
-          }
-        }
-
-        // Preserve the prefix and suffix characters (like semicolons)
-        return prefix + transformedExports.join(';') + suffix
-      }
-    )
-
-    // Handle special case of compact exports at start of line or file
-    code = code.replace(/^export\{([^}]+)\}(\W)/g,
-      function (match, exportNames, suffix) {
-        const names = exportNames.split(',')
-        const transformedExports = []
-
-        for (const name of names) {
-          if (name.includes('as')) {
-            const [sourceName, targetName] = name.split(/\s*as\s*/)
-            transformedExports.push(`exports.${targetName.trim()} = ${sourceName.trim()}`)
-          } else {
-            transformedExports.push(`exports.${name.trim()} = ${name.trim()}`)
-          }
-        }
-
-        return transformedExports.join(';') + suffix
-      }
-    )
-
-    // Handle special case of compact exports at end of line or file
-    code = code.replace(/(\W)export\{([^}]+)\}$/g,
-      function (match, prefix, exportNames) {
-        const names = exportNames.split(',')
-        const transformedExports = []
-
-        for (const name of names) {
-          if (name.includes('as')) {
-            const [sourceName, targetName] = name.split(/\s*as\s*/)
-            transformedExports.push(`exports.${targetName.trim()} = ${sourceName.trim()}`)
-          }
-          else {
-            transformedExports.push(`exports.${name.trim()} = ${name.trim()}`)
-          }
-        }
-
-        return prefix + transformedExports.join(';')
-      }
-    )
-
-    // Handle standalone compact export (no prefix/suffix)
-    code = code.replace(/^export\{([^}]+)\}$/g,
-      function (match, exportNames) {
-        const names = exportNames.split(',')
-        const transformedExports = []
-
-        for (const name of names) {
-          if (name.includes('as')) {
-            const [sourceName, targetName] = name.split(/\s*as\s*/)
-            transformedExports.push(`exports.${targetName.trim()} = ${sourceName.trim()}`)
-          }
-          else {
-            transformedExports.push(`exports.${name.trim()} = ${name.trim()}`)
-          }
-        }
-
-        return transformedExports.join(';')
-      }
-    )
-
-    // Handle minified code pattern with var declarations followed by compact exports
-    code = code.replace(/(var\s+[^;]+);export\{([^}]+)\}/g,
-      function (match, varDecl, exportNames) {
-        const names = exportNames.split(',')
-        const transformedExports = []
-
-        for (const name of names) {
-          if (name.includes('as')) {
-            const [sourceName, targetName] = name.split(/\s*as\s*/)
-            transformedExports.push(`exports.${targetName.trim()} = ${sourceName.trim()}`)
-          }
-          else {
-            transformedExports.push(`exports.${name.trim()} = ${name.trim()}`)
-          }
-        }
-
-        return `${varDecl};${transformedExports.join(';')}`
-      }
-    )
-
-    if (require.debug) console.log('After transform:', code)
-
-    return code
   }
 
   function getModule(path) {
