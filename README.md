@@ -25,7 +25,7 @@
 <body>
   <script src="require.js"></script>
 
-  <!-- Helper scripts that enables ESM-to-CJS and TypeScript transforms -->
+  <!-- Helper script that enables ESM-to-CJS and TypeScript transforms -->
   <!--
   <script src="require-esm-ts.js"></script>
 
