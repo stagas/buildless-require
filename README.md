@@ -30,7 +30,6 @@
 
   <script type="text/typescript">
     import * as confetti from 'confetti.ts'
-    console.log(confetti)
     confetti.throwConfetti()
   </script>
   -->
