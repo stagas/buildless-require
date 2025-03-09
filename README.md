@@ -37,7 +37,7 @@
       transform: m => esmToCjs(m.body, m.name, m.path)
     })
 
-    // `confetti`is an ESM module
+    // `confetti` is an ESM module
     const confetti = require('confetti')
     confetti.default()
 
