@@ -8,16 +8,28 @@ function createTestElement(type, name) {
 
 function describe(name, fn) {
   const group = createTestElement('group', name)
-  document.body.appendChild(group)
+  // Find the current active describe group if any
+  const parentGroup = document.querySelector('.test-group.active') || document.body
+  parentGroup.appendChild(group)
+
+  // Mark current group as active and store previous active
+  const previousActive = document.querySelector('.test-group.active')
+  if (previousActive) previousActive.classList.remove('active')
+  group.classList.add('active')
+
   console.group(name)
   fn()
   console.groupEnd()
+
+  // Restore previous active state
+  group.classList.remove('active')
+  if (previousActive) previousActive.classList.add('active')
 }
 
 function it(name, fn) {
   const test = createTestElement('case', name)
-  const lastGroup = document.querySelector('.test-group:last-child')
-  lastGroup.appendChild(test)
+  const currentGroup = document.querySelector('.test-group.active') || document.querySelector('.test-group:last-child')
+  currentGroup.appendChild(test)
 
   try {
     fn()
@@ -42,10 +54,17 @@ function assert(condition, message) {
 const style = document.createElement('style')
 style.textContent = `
   .test-group {
-    margin: 1em;
+    margin: 0.5em;
     padding: 1em;
     border: 1px solid #ccc;
     border-radius: 4px;
+  }
+  .test-group .test-group {
+    margin-left: 2em;
+    border-left: 3px solid #eee;
+  }
+  .test-group.active {
+    border-color: #aaa;
   }
   .test-case {
     margin: 0.5em 1em;
@@ -71,6 +90,14 @@ style.textContent = `
     border-radius: 2px;
     white-space: pre-wrap;
     font-family: monospace;
+  }
+  .test-name {
+    color: #444;
+  }
+  .test-group > .test-name {
+    font-size: 1.1em;
+    margin-bottom: 0.5em;
+    display: block;
   }
 `
 document.head.appendChild(style)
