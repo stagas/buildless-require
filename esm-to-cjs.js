@@ -26,6 +26,18 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
     return importPath
   }
 
+  // Handle empty exports first
+  code = code.replace(/export\s*{}\s*;?\s*$/g, '')
+  code = code.replace(/export\s*{}\s*;/g, '')
+
+  // Handle generator and async generator function exports first
+  code = code.replace(/export\s+(async\s+)?function\s*\*\s*([^\s(]+)/g,
+    function (match, asyncMod, name) {
+      const prefix = asyncMod || ''
+      return `${prefix}function* ${name}`
+    }
+  )
+
   // Replace import statements with destructuring
   code = code.replace(/import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g,
     function (match, importNames, importPath) {
@@ -325,6 +337,17 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
   code = code.replace(/export (const|let|var)([^\s(=]+)=([^;]+)/g,
     function (match, type, name, value) {
       return `${type} ${name.trim()}=${value}\nexports.${name.trim()} = ${name.trim()}`
+    }
+  )
+
+  // Handle empty exports
+  code = code.replace(/export\s*{}\s*;?\s*$/g, '')
+
+  // Handle generator and async generator function exports
+  code = code.replace(/export\s+(async\s+)?function\s*\*\s+([^\s(]+)/g,
+    function (match, asyncMod, name) {
+      const prefix = asyncMod || ''
+      return `${prefix}function* ${name}\nexports.${name} = ${name}`
     }
   )
 
