@@ -38,6 +38,7 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
   let output = ''
   const exportNames = []
   let defaultExport = null
+  let hasAwait = code.includes('await '); // Check if code contains await statements
 
   // Get all lines of the code
   const lines = code.split('\n')
@@ -208,23 +209,35 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
   // Add the processed content
   output = processedLines.join('\n')
 
-  // Add the export statements
-  output = 'var exports = module.exports;\n\n' + output + '\n\n'
+  // If the code contains await statements, wrap everything in an async IIFE
+  if (hasAwait && !output.includes('async function')) {
+    output = `var exports = module.exports;
 
-  // Add named exports
-  for (const { local, exported } of exportNames) {
-    // Only add export statement if both local and exported names are non-empty
-    if (local && exported) {
-      output += `exports.${exported} = ${local};\n`
+(async function() {
+${output}
+})().catch(err => {
+  console.error('Error in async module:', err);
+  throw err;
+});`;
+  } else {
+    // Add the export statements normally
+    output = 'var exports = module.exports;\n\n' + output + '\n\n'
+
+    // Add named exports
+    for (const { local, exported } of exportNames) {
+      // Only add export statement if both local and exported names are non-empty
+      if (local && exported) {
+        output += `exports.${exported} = ${local};\n`
+      }
     }
-  }
 
-  // Add default export if any
-  if (defaultExport) {
-    output += `\nexports.default = ${defaultExport};\n`
-    output += `\nif (typeof module !== 'undefined' && module.exports) {\n`
-    output += `  module.exports = Object.assign(exports.default, exports);\n`
-    output += `}\n`
+    // Add default export if any
+    if (defaultExport) {
+      output += `\nexports.default = ${defaultExport};\n`
+      output += `\nif (typeof module !== 'undefined' && module.exports) {\n`
+      output += `  module.exports = Object.assign(exports.default, exports);\n`
+      output += `}\n`
+    }
   }
 
   return output

@@ -1,15 +1,29 @@
+// Pre-load the fixture module before running tests
+require('./fixtures/import-fixtures.js');
+
 describe('Import patterns', () => {
   // Define helper function within describe scope
   const evalInModuleContext = code => {
-    // First make sure the fixture modules are loaded and transformed
-    // This ensures the ESM transformations are applied before any tests try to require them
-    require('./fixtures/import-fixtures.js');
+    // Check if code has await, if so wrap it in an async function
+    const hasAwait = code.includes('await');
     
-    return require.eval({
+    // Create module with special handling for async code
+    const m = require.eval({
       body: code,
       name: 'test',
       path: location.href
-    })
+    });
+    
+    // Override run if needed to handle async
+    if (hasAwait) {
+      const originalRun = m.run;
+      m.run = async function() {
+        await originalRun.call(this);
+        return this.exports;
+      };
+    }
+    
+    return m;
   }
 
   describe('Named imports', () => {
