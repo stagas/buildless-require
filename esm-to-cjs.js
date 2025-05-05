@@ -52,18 +52,21 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
 
       // Handle named exports
       if (line.startsWith('export {')) {
-        const exportPart = line.substring('export {'.length, line.indexOf('}')).trim()
-        const parts = exportPart.split(',').map(part => part.trim())
-
-        for (const part of parts) {
-          if (part.includes(' as ')) {
-            const [localName, exportedName] = part.split(' as ').map(s => s.trim())
-            exportNames.push({ local: localName, exported: exportedName })
-          } else {
-            exportNames.push({ local: part, exported: part })
+        const exportPart = line.substring('export {'.length, line.indexOf('}')).trim();
+        // Skip if it's an empty export statement
+        if (exportPart.length > 0) {
+          const parts = exportPart.split(',').map(part => part.trim());
+          
+          for (const part of parts) {
+            if (part.includes(' as ')) {
+              const [localName, exportedName] = part.split(' as ').map(s => s.trim());
+              exportNames.push({ local: localName, exported: exportedName });
+            } else {
+              exportNames.push({ local: part, exported: part });
+            }
           }
         }
-        continue
+        continue;
       }
 
       // Handle inline exports like "export const x = 1"
@@ -189,7 +192,10 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
 
   // Add named exports
   for (const { local, exported } of exportNames) {
-    output += `exports.${exported} = ${local};\n`
+    // Only add export statement if both local and exported names are non-empty
+    if (local && exported) {
+      output += `exports.${exported} = ${local};\n`;
+    }
   }
 
   // Add default export if any
