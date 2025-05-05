@@ -51,7 +51,7 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
       }
 
       // Handle named exports
-      if (line.startsWith('export {')) {
+      if (line.startsWith('export {') && !line.includes(' from ')) {
         const exportPart = line.substring('export {'.length, line.indexOf('}')).trim();
         // Skip if it's an empty export statement
         if (exportPart.length > 0) {
@@ -93,19 +93,34 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
         continue
       }
 
-      // Handle export from another module
-      if (line.includes(' from ')) {
-        const fromIndex = line.indexOf(' from ')
-        const source = line.substring(fromIndex + 7).trim().replace(/['"]/g, '')
-        const resolvedSource = resolveImportPath(source)
+      // Handle namespace re-exports: export * as namespace from './module'
+      if (line.includes('export * as ')) {
+        const match = line.match(/export\s+\*\s+as\s+(\w+)\s+from\s+['"](.+?)['"]/)
+        if (match) {
+          const [_, namespace, source] = match
+          const resolvedSource = resolveImportPath(source)
+          processedLines.push(`exports.${namespace} = require('${resolvedSource}');`)
+          continue
+        }
+      }
 
-        // Handle re-export all
-        if (line.includes('export * ')) {
+      // Handle regular re-exports: export * from './module'
+      if (line.startsWith('export * from ')) {
+        const match = line.match(/export\s+\*\s+from\s+['"](.+?)['"]/)
+        if (match) {
+          const [_, source] = match
+          const resolvedSource = resolveImportPath(source)
           processedLines.push(`Object.assign(exports, require('${resolvedSource}'));`)
           continue
         }
+      }
 
-        // Handle named re-exports
+      // Handle named re-exports: export { x, y as z } from './module'
+      if (line.startsWith('export {') && line.includes(' from ')) {
+        const fromIndex = line.indexOf(' from ')
+        const source = line.substring(fromIndex + 7).trim().replace(/['"]/g, '')
+        const resolvedSource = resolveImportPath(source)
+        
         const exportPart = line.substring('export {'.length, line.indexOf('}')).trim()
         const parts = exportPart.split(',').map(part => part.trim())
 
