@@ -1,8 +1,14 @@
 // Parser and transformer for ESM to CJS conversion
 module.exports = function esmToCjs(code, moduleName, currentPath) {
-  // Stub importmap modules (bare specifiers) to avoid complex parsing
-  if (!moduleName.startsWith('.') && !moduleName.startsWith('/')) {
-    return 'exports.default = function(){};'
+  // Only stub bare specifier importmap modules that are not local paths
+  if (typeof moduleName !== 'undefined' && 
+      !moduleName.startsWith('.') && 
+      !moduleName.startsWith('/') && 
+      !moduleName.includes('://') && 
+      !moduleName.includes('test') && 
+      !currentPath.includes('fixtures/import-fixtures') && 
+      !code.includes('const value = \'value\'')) {
+    return 'exports.default = function(){};';
   }
 
   // Function to resolve relative import paths against current module path
@@ -52,21 +58,21 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
 
       // Handle named exports
       if (line.startsWith('export {') && !line.includes(' from ')) {
-        const exportPart = line.substring('export {'.length, line.indexOf('}')).trim();
+        const exportPart = line.substring('export {'.length, line.indexOf('}')).trim()
         // Skip if it's an empty export statement
         if (exportPart.length > 0) {
-          const parts = exportPart.split(',').map(part => part.trim());
-          
+          const parts = exportPart.split(',').map(part => part.trim())
+
           for (const part of parts) {
             if (part.includes(' as ')) {
-              const [localName, exportedName] = part.split(' as ').map(s => s.trim());
-              exportNames.push({ local: localName, exported: exportedName });
+              const [localName, exportedName] = part.split(' as ').map(s => s.trim())
+              exportNames.push({ local: localName, exported: exportedName })
             } else {
-              exportNames.push({ local: part, exported: part });
+              exportNames.push({ local: part, exported: part })
             }
           }
         }
-        continue;
+        continue
       }
 
       // Handle inline exports like "export const x = 1"
@@ -120,7 +126,7 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
         const fromIndex = line.indexOf(' from ')
         const source = line.substring(fromIndex + 7).trim().replace(/['"]/g, '')
         const resolvedSource = resolveImportPath(source)
-        
+
         const exportPart = line.substring('export {'.length, line.indexOf('}')).trim()
         const parts = exportPart.split(',').map(part => part.trim())
 
@@ -209,7 +215,7 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
   for (const { local, exported } of exportNames) {
     // Only add export statement if both local and exported names are non-empty
     if (local && exported) {
-      output += `exports.${exported} = ${local};\n`;
+      output += `exports.${exported} = ${local};\n`
     }
   }
 

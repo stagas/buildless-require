@@ -1,6 +1,10 @@
 describe('Import patterns', () => {
   // Define helper function within describe scope
   const evalInModuleContext = code => {
+    // First make sure the fixture modules are loaded and transformed
+    // This ensures the ESM transformations are applied before any tests try to require them
+    require('./fixtures/import-fixtures.js');
+    
     return require.eval({
       body: code,
       name: 'test',
