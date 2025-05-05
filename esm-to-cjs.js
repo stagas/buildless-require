@@ -2,17 +2,7 @@ const acorn = require('./acorn.js')
 
 // Parser and transformer for ESM to CJS conversion
 module.exports = function esmToCjs(code, moduleName, currentPath) {
-  // Only stub bare specifier importmap modules that are not local paths
-  if (typeof moduleName !== 'undefined' &&
-    !moduleName.startsWith('.') &&
-    !moduleName.startsWith('/') &&
-    !moduleName.includes('://')
-  ) {
-    return 'exports.default = function(){};'
-  }
-
   // Pre-process the code to remove empty export statements
-  // This ensures they don't cause issues during parsing or code generation
   code = code.replace(/export\s*\{\s*\}\s*;?/g, '')
 
   // Function to resolve relative import paths against current module path
@@ -212,68 +202,40 @@ ${output.join('\n')}
       allowAwaitOutsideFunction: true,
       allowYieldOutsideFunction: true
     })
-
     // Transform the AST to CommonJS
     return transform(ast)
   } catch (err) {
     console.error('Error parsing or transforming module:', err)
-
-    // Fallback to simple transformation for robustness
+    // Safe fallback: only remove 'export' and 'import' keywords, do not try to parse or assign export default
     let processedCode = code
+      // Remove all 'export' keywords (keep the rest of the line)
+      .replace(/^\s*export\s+/gm, '')
+      // Remove all 'import' statements (side-effect imports)
+      .replace(/^\s*import\s+['"][^'"]+['"];?\s*$/gm, '')
 
-    // First step: Extract and handle default exports
-    let defaultExportValue = null
-    const defaultExportMatch = code.match(/export\s+default\s+([^;\n]+)/)
-    if (defaultExportMatch) {
-      defaultExportValue = defaultExportMatch[1].trim()
-      // Remove the default export line from the code we process further
-      processedCode = processedCode.replace(/export\s+default\s+[^;\n]+[;\n]?/g, '')
+    // Collect named exports for the end
+    const namedExportMatches = [...code.matchAll(/export\s*\{([^}]+)\}/g)]
+    let exportLines = []
+    for (const match of namedExportMatches) {
+      const names = match[1].split(',')
+      for (const name of names) {
+        const parts = name.trim().split(/\s+as\s+/)
+        const local = parts[0].trim()
+        const exported = parts[1] ? parts[1].trim() : local
+        exportLines.push(`exports.${exported} = ${local};`)
+      }
     }
+    // Remove named export lines
+    processedCode = processedCode.replace(/export\s*\{[^}]+\};?/g, '')
 
-    // Second step: Handle other export types
-    processedCode = processedCode
-      .replace(/export\s*\{\s*\}\s*;?/g, '')  // Remove empty export statements
-      .replace(/export\s+(?:const|let|var|function|class)\s+([^=\s{(]+)/g, '$&\nexports.$1 = $1')
-      .replace(/export\s+function\s*\*\s*([^(]+)/g, '$&\nexports.$1 = $1') // Handle generator functions
-      .replace(/export\s+async\s+function\s*\*\s*([^(]+)/g, '$&\nexports.$1 = $1') // Handle async generator functions
-      .replace(/export\s+\{([^}]+)\}/g, (_, names) =>
-        names.split(',').map(name => {
-          const parts = name.trim().split(/\s+as\s+/)
-          const local = parts[0].trim()
-          const exported = parts[1] ? parts[1].trim() : local
-          return `exports.${exported} = ${local};`
-        }).join('\n')
-      )
-      .replace(/import\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g, 'const $1 = require("$2").default')
-      .replace(/import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g, 'const $1 = require("$2")')
-      .replace(/import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g, (_, names, source) =>
-        `const { ${names} } = require("${source}");`
-      )
-
-    // Build the final transformed code
-    let result = `var exports = module.exports;\n\n// Fallback transformation\n${processedCode}\n`
-
-    // Add the default export at the end if we found one
-    if (defaultExportValue !== null) {
-      result += `\nexports.default = ${defaultExportValue};\n`
-      // Add module.exports assignment for default when accessed directly
-      result += `
-// Handle default exports when module is accessed directly
-if (typeof module !== 'undefined') {
-  Object.defineProperty(module.exports, '__esModule', { value: true });
-
-  // Preserve named exports when default export is accessed directly
-  const defaultExport = module.exports.default;
-  if (typeof defaultExport === 'object' || typeof defaultExport === 'function') {
-    Object.keys(module.exports).forEach(key => {
-      if (key !== 'default') defaultExport[key] = module.exports[key];
-    });
-  }
-}
-`
-    }
-
-    result += `\nmodule.exports = exports;`
-    return result
+    return [
+      'var exports = module.exports;',
+      '',
+      processedCode.trim(),
+      '',
+      ...exportLines,
+      '',
+      'module.exports = exports;'
+    ].join('\n')
   }
 }

@@ -1,29 +1,35 @@
 // Pre-load the fixture module before running tests
-require('./fixtures/import-fixtures.js');
+try {
+  console.log('Loading import fixtures...')
+  const fixtures = require('./fixtures/import-fixtures.js')
+  console.log('Import fixtures loaded successfully:', Object.keys(fixtures))
+} catch (error) {
+  console.error('Error loading import fixtures:', error)
+}
 
 describe('Import patterns', () => {
   // Define helper function within describe scope
   const evalInModuleContext = code => {
     // Check if code has await, if so wrap it in an async function
-    const hasAwait = code.includes('await');
-    
+    const hasAwait = code.includes('await')
+
     // Create module with special handling for async code
     const m = require.eval({
       body: code,
       name: 'test',
       path: location.href
-    });
-    
+    })
+
     // Override run if needed to handle async
     if (hasAwait) {
-      const originalRun = m.run;
-      m.run = async function() {
-        await originalRun.call(this);
-        return this.exports;
-      };
+      const originalRun = m.run
+      m.run = async function () {
+        await originalRun.call(this)
+        return this.exports
+      }
     }
-    
-    return m;
+
+    return m
   }
 
   describe('Named imports', () => {

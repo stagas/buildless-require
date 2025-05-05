@@ -329,6 +329,26 @@ class Parser {
     this.skipSpace()
 
     do {
+      // PATCH: skip destructuring patterns
+      if (this.current() === '{' || this.current() === '[') {
+        // Skip until we hit a comma or semicolon
+        let depth = 0
+        while (this.pos < this.input.length) {
+          if (this.current() === '{' || this.current() === '[') depth++
+          if (this.current() === '}' || this.current() === ']') depth--
+          if (depth === 0 && (this.current() === ',' || this.current() === ';')) break
+          this.pos++
+        }
+        // Add a dummy identifier for destructuring
+        declarations.push({
+          type: "VariableDeclarator",
+          id: { name: "destructured" },
+          init: null
+        })
+        if (this.current() === ',') this.pos++
+        continue
+      }
+
       const id = this.parseIdentifier()
       this.skipSpace()
 
