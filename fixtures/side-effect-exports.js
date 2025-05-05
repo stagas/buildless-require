@@ -1,5 +1,7 @@
 // This module has side effects when imported
-globalThis.sideEffectValue = 42
+(function (global) {
+  global.sideEffectValue = 42
+})(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : global)
 
-// Empty export at the end to avoid transformation issues
+// Empty export at the end
 export { }

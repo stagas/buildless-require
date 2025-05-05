@@ -60,13 +60,15 @@
   require.eval = function (m) {
     require.transform(m)
 
-    m.exports = {}
+    m.module = { exports: {} }
+    m.exports = m.module.exports
     m.require = require.bind(null, m.path)
     m.fn = new Function('module', 'exports', 'require', m.body)
     m.didRun = false
     m.run = () => {
       m.didRun = true
-      m.fn(m, m.exports, m.require)
+      m.fn(m.module, m.module.exports, m.require)
+      m.exports = m.module.exports // Update exports after run
     }
 
     return m

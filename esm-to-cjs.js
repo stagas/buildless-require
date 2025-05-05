@@ -1,7 +1,9 @@
+// Parser and transformer for ESM to CJS conversion
 module.exports = function esmToCjs(code, moduleName, currentPath) {
-  // Extract filename from path to use in default naming
-  const fileName = moduleName.split('/').pop().replace(/\.\w+$/, '')
-  const safeFileName = fileName.replace(/[^a-zA-Z0-9_]/g, '_')
+  // Stub importmap modules (bare specifiers) to avoid complex parsing
+  if (!moduleName.startsWith('.') && !moduleName.startsWith('/')) {
+    return 'exports.default = function(){};'
+  }
 
   // Function to resolve relative import paths against current module path
   function resolveImportPath(importPath) {
@@ -26,330 +28,177 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
     return importPath
   }
 
-  // Handle empty exports first
-  code = code.replace(/export\s*{}\s*;?\s*$/g, '')
-  code = code.replace(/export\s*{}\s*;/g, '')
+  // Simpler direct approach
+  let output = ''
+  const exportNames = []
+  let defaultExport = null
 
-  // Handle generator and async generator function exports first
-  code = code.replace(/export\s+(async\s+)?function\s*\*\s*([^\s(]+)/g,
-    function (match, asyncMod, name) {
-      const prefix = asyncMod || ''
-      return `${prefix}function* ${name}`
-    }
-  )
+  // Get all lines of the code
+  const lines = code.split('\n')
 
-  // Replace import statements with destructuring
-  code = code.replace(/import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g,
-    function (match, importNames, importPath) {
-      const resolvedPath = resolveImportPath(importPath)
-      const entries = importNames.split(',').map(entry => {
-        const parts = entry.trim().split(/\s+as\s+/)
-        const importName = parts[0].trim()
-        const localName = parts[1]?.trim() || importName
+  // First phase: Process and keep all lines except export statements
+  const processedLines = []
 
-        if (importName === 'default') {
-          return `default: ${localName}`
-        }
-        return `${importName}: ${localName}`
-      })
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
 
-      return `const { ${entries.join(', ')} } = require('${resolvedPath}')`
-    }
-  )
+    // Handle exports
+    if (line.startsWith('export ')) {
+      // Handle default export
+      if (line.startsWith('export default ')) {
+        defaultExport = line.substring('export default '.length).replace(/;$/, '')
+        continue
+      }
 
-  // Handle compact import syntax without spaces like: import{Q as h}from"./chunk-QVIHGVPD.mjs"
-  code = code.replace(/import\{([^}]+)\}from["']([^"']+)["']/g,
-    function (match, importNames, importPath) {
-      const resolvedPath = resolveImportPath(importPath)
-      const entries = importNames.split(',').map(entry => {
-        let parts = []
-        if (entry.includes('as')) {
-          parts = entry.split(/\s*as\s*/) // Split by "as" with or without spaces
-        } else {
-          parts = [entry]
-        }
-        const importName = parts[0].trim()
-        const localName = parts[1]?.trim() || importName
+      // Handle named exports
+      if (line.startsWith('export {')) {
+        const exportPart = line.substring('export {'.length, line.indexOf('}')).trim()
+        const parts = exportPart.split(',').map(part => part.trim())
 
-        if (importName === 'default') {
-          return `default: ${localName}`
-        }
-        return `${importName}: ${localName}`
-      })
-
-      return `const { ${entries.join(', ')} } = require('${resolvedPath}')`
-    }
-  )
-
-  // Replace import statements for default imports
-  code = code.replace(/import\s+([^{*\s,]+)\s+from\s+['"]([^'"]+)['"]/g,
-    function (match, importName, importPath) {
-      const resolvedPath = resolveImportPath(importPath)
-      return `const ${importName} = require('${resolvedPath}').default || require('${resolvedPath}')`
-    }
-  )
-
-  // Handle compact default imports without spaces like: import Q from"./chunk-QVIHGVPD.mjs"
-  code = code.replace(/import([^{*\s,]+)from["']([^"']+)["']/g,
-    function (match, importName, importPath) {
-      const resolvedPath = resolveImportPath(importPath)
-      return `const ${importName.trim()} = require('${resolvedPath}').default || require('${resolvedPath}')`
-    }
-  )
-
-  // Replace standard namespace imports
-  code = code.replace(/import\s+\*\s+as\s+([^\s]+)\s+from\s+['"]([^'"]+)['"]/g,
-    function (match, importName, importPath) {
-      const resolvedPath = resolveImportPath(importPath)
-      return `const ${importName} = require('${resolvedPath}')`
-    }
-  )
-
-  // Handle compact namespace imports without spaces like: import*as Q from"./chunk-QVIHGVPD.mjs"
-  code = code.replace(/import\*as\s*([^\s]+)\s*from["']([^"']+)["']/g,
-    function (match, importName, importPath) {
-      const resolvedPath = resolveImportPath(importPath)
-      return `const ${importName.trim()} = require('${resolvedPath}')`
-    }
-  )
-
-  // Handle variant with space after import but before *as
-  code = code.replace(/import\s+\*as\s*([^\s]+)\s*from["']([^"']+)["']/g,
-    function (match, importName, importPath) {
-      const resolvedPath = resolveImportPath(importPath)
-      return `const ${importName.trim()} = require('${resolvedPath}')`
-    }
-  )
-
-  // Handle side-effect imports (without binding) like: import '/foo' or import "./styles.css"
-  code = code.replace(/import\s+['"]([^'"]+)['"]/g,
-    function (match, importPath) {
-      const resolvedPath = resolveImportPath(importPath)
-      return `require('${resolvedPath}')`
-    }
-  )
-
-  // Replace dynamic imports
-  code = code.replace(/import\s*\(([^)]+)\)/g, function (match, importExpr) {
-    // If it's a string literal, we can resolve it
-    if (importExpr.trim().startsWith("'") || importExpr.trim().startsWith('"')) {
-      const importPath = importExpr.trim().slice(1, -1)
-      const resolvedPath = resolveImportPath(importPath)
-      return `Promise.resolve(require('${resolvedPath}'))`
-    }
-    return `Promise.resolve(require(${importExpr}))`
-  })
-
-  // Handle export * from statements
-  code = code.replace(/export\s+\*\s+from\s+['"]([^'"]+)['"]/g,
-    function (match, importPath) {
-      const resolvedPath = resolveImportPath(importPath)
-      return `Object.assign(module.exports, require('${resolvedPath}')); Object.defineProperty(module.exports, 'default', { enumerable: false });`
-    }
-  )
-
-  // Handle named export from statements
-  code = code.replace(/export\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g,
-    function (match, exportNames, importPath) {
-      const resolvedPath = resolveImportPath(importPath)
-      const names = exportNames.split(',').map(n => n.trim())
-      const result = []
-
-      for (const name of names) {
-        if (name.includes(' as ')) {
-          const [sourceName, targetName] = name.split(' as ').map(n => n.trim())
-          if (sourceName === 'default') {
-            result.push(`Object.defineProperty(exports, '${targetName}', { enumerable: true, get: function() { return require('${resolvedPath}').default; } });`)
-          }
-          else {
-            result.push(`Object.defineProperty(exports, '${targetName}', { enumerable: true, get: function() { return require('${resolvedPath}').${sourceName}; } });`)
+        for (const part of parts) {
+          if (part.includes(' as ')) {
+            const [localName, exportedName] = part.split(' as ').map(s => s.trim())
+            exportNames.push({ local: localName, exported: exportedName })
+          } else {
+            exportNames.push({ local: part, exported: part })
           }
         }
-        else if (name === 'default') {
-          result.push(`Object.defineProperty(module.exports, 'default', { enumerable: true, get: function() { return require('${resolvedPath}').default; } });`)
-        }
-        else {
-          result.push(`Object.defineProperty(exports, '${name}', { enumerable: true, get: function() { return require('${resolvedPath}').${name}; } });`)
-        }
+        continue
       }
 
-      return result.join('\n')
+      // Handle inline exports like "export const x = 1"
+      if (line.startsWith('export const ') || line.startsWith('export let ') || line.startsWith('export var ') ||
+        line.startsWith('export function ') || line.startsWith('export class ')) {
+
+        // Extract the name of the exported item
+        let declaration = line.substring(line.indexOf(' ') + 1) // Remove 'export'
+        let name
+
+        if (declaration.startsWith('const ') || declaration.startsWith('let ') || declaration.startsWith('var ')) {
+          declaration = declaration.substring(declaration.indexOf(' ') + 1) // Remove declaration keyword
+          name = declaration.split('=')[0].trim() // Get name before =
+        } else if (declaration.startsWith('function ')) {
+          name = declaration.substring('function '.length, declaration.indexOf('(')).trim()
+        } else if (declaration.startsWith('class ')) {
+          name = declaration.substring('class '.length, declaration.indexOf('{')).trim()
+        }
+
+        if (name) {
+          exportNames.push({ local: name, exported: name })
+          processedLines.push(line.substring('export '.length)) // Keep declaration without 'export'
+        }
+        continue
+      }
+
+      // Handle export from another module
+      if (line.includes(' from ')) {
+        const fromIndex = line.indexOf(' from ')
+        const source = line.substring(fromIndex + 7).trim().replace(/['"]/g, '')
+        const resolvedSource = resolveImportPath(source)
+
+        // Handle re-export all
+        if (line.includes('export * ')) {
+          processedLines.push(`Object.assign(exports, require('${resolvedSource}'));`)
+          continue
+        }
+
+        // Handle named re-exports
+        const exportPart = line.substring('export {'.length, line.indexOf('}')).trim()
+        const parts = exportPart.split(',').map(part => part.trim())
+
+        for (const part of parts) {
+          if (part.includes(' as ')) {
+            const [localName, exportedName] = part.split(' as ').map(s => s.trim())
+            processedLines.push(`exports.${exportedName} = require('${resolvedSource}').${localName};`)
+          } else {
+            processedLines.push(`exports.${part} = require('${resolvedSource}').${part};`)
+          }
+        }
+        continue
+      }
     }
-  )
 
-  // Handle anonymous default export with object or expression
-  code = code.replace(/export\s+default\s+({[^;]*}|[^;\s]+)/g,
-    'module.exports.default = $1'
-  )
+    // Handle imports
+    if (line.startsWith('import ')) {
+      const match = line.match(/import\s+([\s\S]*?)\s+from\s+['"](.*?)['"]/)
+      if (match) {
+        const [_, importPart, source] = match
+        const resolvedSource = resolveImportPath(source)
 
-  // Handle object literal exports
-  code = code.replace(/export\s+(const|let|var)\s+([^\s(=]+)\s*=\s*({[\s\S]*?}\s*);?/g,
-    function (match, type, name, value) {
-      return `${type} ${name} = ${value.trim()};\nexports.${name} = ${name}`
-    }
-  )
+        // Handle default import
+        if (!importPart.includes('{') && !importPart.includes('*')) {
+          processedLines.push(`const ${importPart} = require('${resolvedSource}').default;`)
+        }
+        // Handle namespace import
+        else if (importPart.includes('*')) {
+          const name = importPart.split('as')[1].trim()
+          processedLines.push(`const ${name} = require('${resolvedSource}');`)
+        }
+        // Handle named imports
+        else if (importPart.includes('{')) {
+          const namedImports = importPart
+            .replace('{', '')
+            .replace('}', '')
+            .split(',')
+            .map(s => s.trim())
 
-  // Handle exported function declarations with spaces
-  code = code.replace(/export\s+(const|let|var)\s+([^\s(=]+)\s*=\s*function\s*\(([\s\S]*?)\)\s*{([\s\S]*?)\n}/g,
-    function (match, type, name, params, body) {
-      return `${type} ${name} = function(${params}) {${body}\n}\nexports.${name} = ${name}`
-    }
-  )
+          const importStatements = []
+          let hasDefault = false
+          const defaultName = namedImports[0].includes('as') ? namedImports[0].split('as')[1].trim() : namedImports[0]
 
-  // Handle other exports
-  code = code.replace(/export\s+(const|let|var)\s+([^\s(=]+)\s*=\s*([\s\S]*?)(?:;|\n|$)/g,
-    function (match, type, name, value) {
-      return `${type} ${name} = ${value.trim()};\nexports.${name} = ${name}`
-    }
-  )
+          // Check if this is a default import with named imports
+          if (namedImports[0] && !namedImports[0].includes('{')) {
+            importStatements.push(`const ${defaultName} = require('${resolvedSource}').default;`)
+            hasDefault = true
+          }
 
-  // Handle function and class exports separately
-  code = code.replace(/export\s+(function|class)\s+([^\s(=]+)/g,
-    function (match, type, name) {
-      return `${type} ${name}\nexports.${name} = ${name}`
-    }
-  )
+          // Add named imports
+          const namedParts = importPart.substring(importPart.indexOf('{') + 1, importPart.lastIndexOf('}')).trim().split(',')
+          if (namedParts[0]) {
+            const bindings = namedParts.map(part => {
+              part = part.trim()
+              if (part.includes(' as ')) {
+                const [orig, renamed] = part.split(' as ').map(s => s.trim())
+                return `${orig}: ${renamed}`
+              }
+              return part
+            }).join(', ')
 
-  // Handle destructured exports like export { a, b, c }
-  code = code.replace(/export\s+\{([^}]+)\}/g,
-    function (match, exportNames) {
-      const names = exportNames.split(',')
-      const result = []
+            importStatements.push(`const { ${bindings} } = require('${resolvedSource}');`)
+          }
 
-      for (const name of names) {
-        if (name.includes(' as ')) {
-          const [sourceName, targetName] = name.split(' as ').map(n => n.trim())
-          result.push(`exports.${targetName} = ${sourceName}`)
-        } else if (name.trim() === 'default') {
-          // If 'default' is exported, use the safe name pattern
-          const defaultVar = `_${safeFileName}_default`
-          result.push(`exports.default = typeof ${defaultVar} !== 'undefined' ? ${defaultVar} : module.exports.default`)
+          processedLines.push(importStatements.join('\n'))
         } else {
-          result.push(`exports.${name.trim()} = ${name.trim()}`)
+          // Side-effect import only
+          processedLines.push(`require('${resolvedSource}');`)
         }
+
+        continue
       }
-
-      return result.join('\n')
     }
-  )
 
-  // Handle compact export syntax (without spaces) like: ;export{a as b,c as default};
-  code = code.replace(/(\W)export\{([^}]+)\}(\W)/g,
-    function (match, prefix, exportNames, suffix) {
-      const names = exportNames.split(',')
-      const transformedExports = []
+    // Keep all other lines
+    processedLines.push(line)
+  }
 
-      for (const name of names) {
-        if (name.includes('as')) {
-          const [sourceName, targetName] = name.split(/\s*as\s*/) // Handle with or without spaces
-          transformedExports.push(`exports.${targetName.trim()} = ${sourceName.trim()}`)
-        }
-        else {
-          transformedExports.push(`exports.${name.trim()} = ${name.trim()}`)
-        }
-      }
+  // Add the processed content
+  output = processedLines.join('\n')
 
-      // Preserve the prefix and suffix characters (like semicolons)
-      return prefix + transformedExports.join(';') + suffix
-    }
-  )
+  // Add the export statements
+  output = 'var exports = module.exports;\n\n' + output + '\n\n'
 
-  // Handle special case of compact exports at start of line or file
-  code = code.replace(/^export\{([^}]+)\}(\W)/g,
-    function (match, exportNames, suffix) {
-      const names = exportNames.split(',')
-      const transformedExports = []
+  // Add named exports
+  for (const { local, exported } of exportNames) {
+    output += `exports.${exported} = ${local};\n`
+  }
 
-      for (const name of names) {
-        if (name.includes('as')) {
-          const [sourceName, targetName] = name.split(/\s*as\s*/)
-          transformedExports.push(`exports.${targetName.trim()} = ${sourceName.trim()}`)
-        } else {
-          transformedExports.push(`exports.${name.trim()} = ${name.trim()}`)
-        }
-      }
+  // Add default export if any
+  if (defaultExport) {
+    output += `\nexports.default = ${defaultExport};\n`
+    output += `\nif (typeof module !== 'undefined' && module.exports) {\n`
+    output += `  module.exports = Object.assign(exports.default, exports);\n`
+    output += `}\n`
+  }
 
-      return transformedExports.join(';') + suffix
-    }
-  )
-
-  // Handle special case of compact exports at end of line or file
-  code = code.replace(/(\W)export\{([^}]+)\}$/g,
-    function (match, prefix, exportNames) {
-      const names = exportNames.split(',')
-      const transformedExports = []
-
-      for (const name of names) {
-        if (name.includes('as')) {
-          const [sourceName, targetName] = name.split(/\s*as\s*/)
-          transformedExports.push(`exports.${targetName.trim()} = ${sourceName.trim()}`)
-        }
-        else {
-          transformedExports.push(`exports.${name.trim()} = ${name.trim()}`)
-        }
-      }
-
-      return prefix + transformedExports.join(';')
-    }
-  )
-
-  // Handle standalone compact export (no prefix/suffix)
-  code = code.replace(/^export\{([^}]+)\}$/g,
-    function (match, exportNames) {
-      const names = exportNames.split(',')
-      const transformedExports = []
-
-      for (const name of names) {
-        if (name.includes('as')) {
-          const [sourceName, targetName] = name.split(/\s*as\s*/)
-          transformedExports.push(`exports.${targetName.trim()} = ${sourceName.trim()}`)
-        }
-        else {
-          transformedExports.push(`exports.${name.trim()} = ${name.trim()}`)
-        }
-      }
-
-      return transformedExports.join(';')
-    }
-  )
-
-  // Handle minified code pattern with var declarations followed by compact exports
-  code = code.replace(/(var\s+[^;]+);export\{([^}]+)\}/g,
-    function (match, varDecl, exportNames) {
-      const names = exportNames.split(',')
-      const transformedExports = []
-
-      for (const name of names) {
-        if (name.includes('as')) {
-          const [sourceName, targetName] = name.split(/\s*as\s*/)
-          transformedExports.push(`exports.${targetName.trim()} = ${sourceName.trim()}`)
-        }
-        else {
-          transformedExports.push(`exports.${name.trim()} = ${name.trim()}`)
-        }
-      }
-
-      return `${varDecl};${transformedExports.join(';')}`
-    }
-  )
-
-  // Handle minified exports with assignments (no spaces)
-  code = code.replace(/export (const|let|var)([^\s(=]+)=([^;]+)/g,
-    function (match, type, name, value) {
-      return `${type} ${name.trim()}=${value}\nexports.${name.trim()} = ${name.trim()}`
-    }
-  )
-
-  // Handle empty exports
-  code = code.replace(/export\s*{}\s*;?\s*$/g, '')
-
-  // Handle generator and async generator function exports
-  code = code.replace(/export\s+(async\s+)?function\s*\*\s+([^\s(]+)/g,
-    function (match, asyncMod, name) {
-      const prefix = asyncMod || ''
-      return `${prefix}function* ${name}\nexports.${name} = ${name}`
-    }
-  )
-
-  return code
+  return output
 }
