@@ -63,6 +63,49 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
   // Track modules that have been imported to avoid duplicates
   const importedModules = new Map()
 
+  // Process all import declarations first to ensure variables are defined before use
+  for (const node of importDeclarations) {
+    const source = node.source.value
+    const resolvedPath = resolveImportPath(source)
+
+    // Handle different import types
+    if (node.specifiers.length === 0) {
+      // Side-effect import: import 'module'
+      output.push(`require('${resolvedPath}');`)
+    } else {
+      // Named and namespace imports
+      const importLines = []
+
+      // Default import: import defaultExport from 'module'
+      const defaultSpecifier = node.specifiers.find(s => s.type === 'ImportDefaultSpecifier')
+      if (defaultSpecifier) {
+        importLines.push(`const ${defaultSpecifier.local.name} = require('${resolvedPath}').default;`)
+      }
+
+      // Namespace import: import * as name from 'module'
+      const namespaceSpecifier = node.specifiers.find(s => s.type === 'ImportNamespaceSpecifier')
+      if (namespaceSpecifier) {
+        importLines.push(`const ${namespaceSpecifier.local.name} = require('${resolvedPath}');`)
+      }
+
+      // Named imports: import { export1, export2 as alias2 } from 'module'
+      const namedSpecifiers = node.specifiers.filter(s => s.type === 'ImportSpecifier')
+      if (namedSpecifiers.length > 0) {
+        const bindings = namedSpecifiers
+          .map(s => {
+            const imported = s.imported.name
+            const local = s.local.name
+            return imported === local ? local : `${imported}: ${local}`
+          })
+          .join(', ')
+
+        importLines.push(`const { ${bindings} } = require('${resolvedPath}');`)
+      }
+
+      output.push(importLines.join('\n'))
+    }
+  }
+
   // Process all non-export/import nodes first to maintain code order
   for (const node of nonExportImportNodes) {
     const originalCode = code.substring(node.start, node.end)
@@ -108,55 +151,13 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
     }
   }
 
-  // Process import declarations
-  for (const node of importDeclarations) {
-    const source = node.source.value
-    const resolvedPath = resolveImportPath(source)
-
-    // Handle different import types
-    if (node.specifiers.length === 0) {
-      // Side-effect import: import 'module'
-      output.push(`require('${resolvedPath}');`)
-    } else {
-      // Named and namespace imports
-      const importLines = []
-
-      // Default import: import defaultExport from 'module'
-      const defaultSpecifier = node.specifiers.find(s => s.type === 'ImportDefaultSpecifier')
-      if (defaultSpecifier) {
-        importLines.push(`const ${defaultSpecifier.local.name} = require('${resolvedPath}').default;`)
-      }
-
-      // Namespace import: import * as name from 'module'
-      const namespaceSpecifier = node.specifiers.find(s => s.type === 'ImportNamespaceSpecifier')
-      if (namespaceSpecifier) {
-        importLines.push(`const ${namespaceSpecifier.local.name} = require('${resolvedPath}');`)
-      }
-
-      // Named imports: import { export1, export2 as alias2 } from 'module'
-      const namedSpecifiers = node.specifiers.filter(s => s.type === 'ImportSpecifier')
-      if (namedSpecifiers.length > 0) {
-        const bindings = namedSpecifiers
-          .map(s => {
-            const imported = s.imported.name
-            const local = s.local.name
-            return imported === local ? local : `${imported}: ${local}`
-          })
-          .join(', ')
-
-        importLines.push(`const { ${bindings} } = require('${resolvedPath}');`)
-      }
-
-      output.push(importLines.join('\n'))
-    }
-  }
-
   // Process export-from declarations (re-exports)
   for (const node of exportNamedDeclarations) {
     if (node.source) {
       const source = node.source.value
       const resolvedPath = resolveImportPath(source)
-      // Ensure unique module variable for each import
+
+      // Get the module variable name
       let moduleName
       if (importedModules.has(resolvedPath)) {
         moduleName = importedModules.get(resolvedPath)
@@ -165,13 +166,18 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
         importedModules.set(resolvedPath, moduleName)
         output.push(`const ${moduleName} = require('${resolvedPath}');`)
       }
+
+      // For each re-export (both named and namespace), create self-contained export assignments
+      // that don't rely on separate declaration/export steps
       for (const specifier of node.specifiers) {
         if (specifier.type === 'ExportSpecifier') {
+          // For named re-exports (export { name } from 'module')
+          // Use direct property access instead of destructuring to avoid initialization issues
           const local = specifier.local.name
           const exported = specifier.exported.name
           output.push(`exports.${exported} = ${moduleName}.${local};`)
         } else if (specifier.type === 'ExportNamespaceSpecifier') {
-          // export * as foo from 'module'
+          // For namespace re-exports (export * as name from 'module')
           const name = specifier.exported.name
           output.push(`exports.${name} = ${moduleName};`)
         }
@@ -223,6 +229,7 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
   for (const { local, exported } of exportNames) {
     output.push(`exports.${exported} = ${local};`)
   }
+  // Do NOT emit export assignments for re-exports here; they are handled above in the re-export block.
 
   // Add default export
   if (defaultExport) {
