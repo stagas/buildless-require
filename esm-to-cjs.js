@@ -136,9 +136,13 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
           else if (declarator.id.type === 'ObjectPattern') {
             // Destructuring case: export const { a, b, c: renamed } = obj;
             for (const property of declarator.id.properties) {
-              if (property.key && property.value) {
-                // Handle both regular and renamed properties
-                const exportedName = property.value.name
+              if (property.key) {
+                // Get the exported name - for normal properties it's the key name,
+                // for renamed properties it's the local binding name
+                const exportedName = property.value.type === 'Identifier' ?
+                  property.value.name : // For renamed exports (foo: bar), use the value name
+                  property.key.name;    // For simple exports (foo), use the key name
+
                 output.push(`exports.${exportedName} = ${exportedName};`)
               }
             }
