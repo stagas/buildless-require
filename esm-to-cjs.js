@@ -1,4 +1,4 @@
-const acorn = require('./acorn.js')
+const acorn = require('https://cdn.jsdelivr.net/npm/acorn@8.14.1/dist/acorn.min.js')
 
 // Pure AST-based transformer for ESM to CJS conversion
 module.exports = function esmToCjs(code, moduleName, currentPath) {
