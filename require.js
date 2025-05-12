@@ -17,7 +17,6 @@
   }
   importmapObj ??= {}
 
-
   self.require = require
 
   require.paths = ['/node_modules']
