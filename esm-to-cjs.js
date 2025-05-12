@@ -17,7 +17,8 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
       try {
         const origin = new URL(currentPath).origin
         return `${origin}${importPath}`
-      } catch (e) {
+      }
+      catch (e) {
         console.error('Failed to resolve absolute path:', e)
       }
     }
@@ -44,13 +45,17 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
   for (const node of ast.body) {
     if (node.type === 'ImportDeclaration') {
       importDeclarations.push(node)
-    } else if (node.type === 'ExportDefaultDeclaration') {
+    }
+    else if (node.type === 'ExportDefaultDeclaration') {
       exportDefaultDeclarations.push(node)
-    } else if (node.type === 'ExportNamedDeclaration') {
+    }
+    else if (node.type === 'ExportNamedDeclaration') {
       exportNamedDeclarations.push(node)
-    } else if (node.type === 'ExportAllDeclaration') {
+    }
+    else if (node.type === 'ExportAllDeclaration') {
       exportAllDeclarations.push(node)
-    } else {
+    }
+    else {
       nonExportImportNodes.push(node)
     }
   }
@@ -72,7 +77,8 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
     if (node.specifiers.length === 0) {
       // Side-effect import: import 'module'
       output.push(`require('${resolvedPath}');`)
-    } else {
+    }
+    else {
       // Named and namespace imports
       const importLines = []
 
@@ -128,7 +134,8 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
             output.push(`exports.${name} = ${name};`)
           }
         }
-      } else if (node.declaration.type === 'FunctionDeclaration' ||
+      }
+      else if (node.declaration.type === 'FunctionDeclaration' ||
         node.declaration.type === 'ClassDeclaration') {
         // For function and class declarations, add export for the name
         if (node.declaration.id && node.declaration.id.name) {
@@ -161,7 +168,8 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
       let moduleName
       if (importedModules.has(resolvedPath)) {
         moduleName = importedModules.get(resolvedPath)
-      } else {
+      }
+      else {
         moduleName = `_mod${importedModules.size}_${Math.random().toString(36).substring(2, 8)}`
         importedModules.set(resolvedPath, moduleName)
         output.push(`const ${moduleName} = require('${resolvedPath}');`)
@@ -176,7 +184,8 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
           const local = specifier.local.name
           const exported = specifier.exported.name
           output.push(`exports.${exported} = ${moduleName}.${local};`)
-        } else if (specifier.type === 'ExportNamespaceSpecifier') {
+        }
+        else if (specifier.type === 'ExportNamespaceSpecifier') {
           // For namespace re-exports (export * as name from 'module')
           const name = specifier.exported.name
           output.push(`exports.${name} = ${moduleName};`)
@@ -194,7 +203,8 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
     let moduleName
     if (importedModules.has(resolvedPath)) {
       moduleName = importedModules.get(resolvedPath)
-    } else {
+    }
+    else {
       moduleName = `_mod${importedModules.size}_${Math.random().toString(36).substring(2, 8)}`
       importedModules.set(resolvedPath, moduleName)
       output.push(`const ${moduleName} = require('${resolvedPath}');`)
@@ -203,7 +213,8 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
     // Handle `export * as foo from 'module'`
     if (node.exported) {
       output.push(`exports.${node.exported.name} = ${moduleName};`)
-    } else {
+    }
+    else {
       // Regular `export * from 'module'`
       output.push(`Object.assign(exports, ${moduleName});`)
     }
@@ -214,7 +225,8 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
     if (node.declaration.type === 'Identifier') {
       // export default existingVariable
       defaultExport = node.declaration.name
-    } else {
+    }
+    else {
       // export default expression or anonymous function/class
       const declarationCode = code.substring(node.declaration.start, node.declaration.end)
 
