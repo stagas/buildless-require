@@ -227,11 +227,20 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
   // Add default export
   if (defaultExport) {
     output.push(`exports.default = ${defaultExport};`)
-
     // Check if the default export is a function or class that we want to make callable
     if (code.includes(`function ${defaultExport}`) || code.includes(`class ${defaultExport}`)) {
       output.push(`module.exports = Object.assign(exports.default, exports);`)
     }
+  }
+
+  // Wrap in async IIFE if top-level await is present
+  if (/\bawait\b/.test(code)) {
+    return [
+      'var exports = module.exports;',
+      '(async () => {',
+      output.slice(1).join('\n'), // skip duplicate var exports = module.exports;
+      '})().catch(e => { throw e; });'
+    ].join('\n')
   }
 
   return output.join('\n')
