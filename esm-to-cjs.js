@@ -128,9 +128,20 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
       if (node.declaration.type === 'VariableDeclaration') {
         // For variable declarations, add exports for each variable
         for (const declarator of node.declaration.declarations) {
-          if (declarator.id && declarator.id.name) {
+          if (declarator.id.type === 'Identifier') {
+            // Simple case: export const name = value;
             const name = declarator.id.name
             output.push(`exports.${name} = ${name};`)
+          }
+          else if (declarator.id.type === 'ObjectPattern') {
+            // Destructuring case: export const { a, b, c: renamed } = obj;
+            for (const property of declarator.id.properties) {
+              if (property.key && property.value) {
+                // Handle both regular and renamed properties
+                const exportedName = property.value.name
+                output.push(`exports.${exportedName} = ${exportedName};`)
+              }
+            }
           }
         }
       }

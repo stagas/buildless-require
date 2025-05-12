@@ -152,4 +152,31 @@ describe('Import patterns', () => {
       assert(m.exports.ns.value === 'value', 'compact namespace import works')
     })
   })
+
+  // Test for object destructuring exports
+  describe('Destructuring exports', () => {
+    it('should handle object destructuring exports', () => {
+      const m = evalInModuleContext(`
+        const { foo, bar, renamedBaz } = require('./fixtures/destructuring-exports.js');
+        module.exports.foo = foo;
+        module.exports.bar = bar;
+        module.exports.renamedBaz = renamedBaz;
+      `)
+      m.run()
+      assert(m.exports.foo === 'foo value', 'destructuring export foo works')
+      assert(m.exports.bar === 'bar value', 'destructuring export bar works')
+      assert(m.exports.renamedBaz === 'baz value', 'renamed destructuring export works')
+    })
+
+    it('should handle importing source object from destructuring exports module', () => {
+      const m = evalInModuleContext(`
+        const { source } = require('./fixtures/destructuring-exports.js');
+        module.exports.source = source;
+      `)
+      m.run()
+      assert(m.exports.source.foo === 'foo value', 'source object is correctly exported')
+      assert(m.exports.source.bar === 'bar value', 'source object is correctly exported')
+      assert(m.exports.source.baz === 'baz value', 'source object is correctly exported')
+    })
+  })
 })
