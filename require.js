@@ -1,6 +1,6 @@
 (function () {
 
-  const importmap = document.querySelector('script[type="importmap"]').textContent
+  const importmap = document.querySelector('script[type="importmap"]')?.textContent ?? '{}'
   const importmapObj = JSON.parse(importmap)
 
   self.require = require
