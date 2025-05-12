@@ -33,7 +33,7 @@
       name = nameParts.join('/')
       parent = parentParts.join('/')
     }
-    else if (importmapObj.imports[name]) {
+    else if (importmapObj.imports?.[name]) {
       return importmapObj.imports[name]
     }
     else if ('/' === name[0]) {
