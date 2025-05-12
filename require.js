@@ -1,7 +1,22 @@
 (function () {
 
-  const importmap = document.querySelector('script[type="importmap"]')?.textContent ?? '{}'
-  const importmapObj = JSON.parse(importmap)
+  let importmapObj
+  const importmap = document.querySelector('script[type="importmap"]')
+  if (importmap) {
+    if (importmap.src) {
+      const req = new XMLHttpRequest()
+      req.open('get', importmap.src, false)
+      req.send(null)
+      if (req.status >= 200 && req.status < 400) {
+        importmapObj = JSON.parse(req.responseText)
+      }
+    }
+    else {
+      importmapObj = JSON.parse(importmap.textContent ?? '{}')
+    }
+  }
+  importmapObj ??= {}
+
 
   self.require = require
 
@@ -63,12 +78,7 @@
     m.module = { exports: {} }
     m.exports = m.module.exports
     m.require = require.bind(null, m.path)
-    m.require.transform = require.transform
-    m.require.transforms = require.transforms
-    m.require.paths = require.paths
-    m.require.eval = require.eval
-    m.require.load = require.load
-    m.require.resolve = require.resolve
+    Object.assign(m.require, require)
     m.fn = new Function('module', 'exports', 'require', m.body)
     m.didRun = false
     m.run = () => {
