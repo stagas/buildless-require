@@ -115,7 +115,6 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
   // Process all non-export/import nodes first to maintain code order
   for (const node of nonExportImportNodes) {
     const originalCode = code.substring(node.start, node.end)
-    if (require.debug) console.log('Processing non-export/import node:', originalCode)
     output.push(originalCode)
   }
 
