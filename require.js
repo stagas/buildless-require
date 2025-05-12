@@ -63,6 +63,8 @@
     m.module = { exports: {} }
     m.exports = m.module.exports
     m.require = require.bind(null, m.path)
+    m.require.transforms = require.transforms
+    m.require.paths = require.paths
     m.fn = new Function('module', 'exports', 'require', m.body)
     m.didRun = false
     m.run = () => {
