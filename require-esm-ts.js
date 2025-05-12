@@ -15,7 +15,8 @@ require.transforms.unshift({
 // run all TypeScript inline script tags
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', runTypeScriptScripts)
-} else {
+}
+else {
   runTypeScriptScripts()
 }
 

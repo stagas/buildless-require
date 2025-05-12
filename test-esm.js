@@ -1,5 +1,3 @@
-require.debug = true
-
 describe('ESM', () => {
   describe('Named exports', () => {
     it('should handle named value export', () => {
