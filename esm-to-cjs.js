@@ -1,10 +1,7 @@
 const acorn = require('./acorn.js')
 
-// Parser and transformer for ESM to CJS conversion
+// Pure AST-based transformer for ESM to CJS conversion
 module.exports = function esmToCjs(code, moduleName, currentPath) {
-  // Pre-process the code to remove empty export statements
-  code = code.replace(/export\s*\{\s*\}\s*;?/g, '')
-
   // Function to resolve relative import paths against current module path
   function resolveImportPath(importPath) {
     if (!importPath) return importPath
@@ -28,214 +25,195 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
     return importPath
   }
 
-  // Transform the ESM AST to CJS
-  function transform(ast) {
-    let output = []
-    let exportNames = []
-    let defaultExport = null
-    let hasAwait = code.includes('await ') || code.includes('async function') // Check for both await and async
+  // Parse the input code to an AST
+  const ast = acorn.parse(code, {
+    ecmaVersion: 2022,
+    sourceType: 'module',
+    allowAwaitOutsideFunction: true,
+    allowYieldOutsideFunction: true
+  })
 
-    // Start with CommonJS exports setup
-    output.push('var exports = module.exports;')
-    output.push('')
+  // Categorize all nodes
+  const nonExportImportNodes = []
+  const importDeclarations = []
+  const exportDefaultDeclarations = []
+  const exportNamedDeclarations = []
+  const exportAllDeclarations = []
 
-    // Process all non-export/import nodes first
-    for (const node of ast.body) {
-      if (node.type !== 'ImportDeclaration' &&
-        node.type !== 'ExportDefaultDeclaration' &&
-        node.type !== 'ExportNamedDeclaration' &&
-        node.type !== 'ExportAllDeclaration') {
-        // For declarations (variables, functions, classes), output them directly
-        const originalCode = code.substring(node.start, node.end)
-        output.push(originalCode)
-      } else if (node.type === 'ExportNamedDeclaration' && node.declaration) {
-        // For export declarations (export function x() {}, export const x = 1),
-        // output the declaration without the 'export' keyword
-        const declarationCode = code.substring(node.declaration.start, node.declaration.end)
-        output.push(declarationCode)
-      }
+  // Separate the nodes by type for organized processing
+  for (const node of ast.body) {
+    if (node.type === 'ImportDeclaration') {
+      importDeclarations.push(node)
+    } else if (node.type === 'ExportDefaultDeclaration') {
+      exportDefaultDeclarations.push(node)
+    } else if (node.type === 'ExportNamedDeclaration') {
+      exportNamedDeclarations.push(node)
+    } else if (node.type === 'ExportAllDeclaration') {
+      exportAllDeclarations.push(node)
+    } else {
+      nonExportImportNodes.push(node)
     }
-
-    // Process import declarations
-    for (const node of ast.body) {
-      if (node.type === 'ImportDeclaration') {
-        const source = node.source.value
-        const resolvedPath = resolveImportPath(source)
-
-        // Handle different import types
-        if (node.specifiers.length === 0) {
-          // Side-effect import: import 'module'
-          output.push(`require('${resolvedPath}');`)
-        } else {
-          // Named and namespace imports
-          const importLines = []
-
-          // Default import: import defaultExport from 'module'
-          const defaultSpecifier = node.specifiers.find(s => s.type === 'ImportDefaultSpecifier')
-          if (defaultSpecifier) {
-            importLines.push(`const ${defaultSpecifier.local.name} = require('${resolvedPath}').default;`)
-          }
-
-          // Namespace import: import * as name from 'module'
-          const namespaceSpecifier = node.specifiers.find(s => s.type === 'ImportNamespaceSpecifier')
-          if (namespaceSpecifier) {
-            importLines.push(`const ${namespaceSpecifier.local.name} = require('${resolvedPath}');`)
-          }
-
-          // Named imports: import { export1, export2 as alias2 } from 'module'
-          const namedSpecifiers = node.specifiers.filter(s => s.type === 'ImportSpecifier')
-          if (namedSpecifiers.length > 0) {
-            const bindings = namedSpecifiers
-              .map(s => {
-                const imported = s.imported.name
-                const local = s.local.name
-                return imported === local ? local : `${imported}: ${local}`
-              })
-              .join(', ')
-
-            importLines.push(`const { ${bindings} } = require('${resolvedPath}');`)
-          }
-
-          output.push(importLines.join('\n'))
-        }
-      }
-    }
-
-    // Process export declarations
-    for (const node of ast.body) {
-      if (node.type === 'ExportDefaultDeclaration') {
-        // Default export: export default expression
-        if (node.declaration.type === 'Identifier') {
-          // If it's just a variable reference: export default varName
-          defaultExport = node.declaration.name
-        } else {
-          // Otherwise, it's an inline expression: export default { ... }
-          const declaration = code.substring(node.declaration.start, node.declaration.end)
-          defaultExport = declaration
-        }
-      } else if (node.type === 'ExportNamedDeclaration') {
-        if (node.declaration) {
-          // Export with declaration: export const x = 1, export function f() {}
-          const declarationCode = code.substring(node.declaration.start, node.declaration.end)
-
-          if (node.declaration.type === 'VariableDeclaration') {
-            // For variable declarations, add exports for each variable
-            for (const declarator of node.declaration.declarations) {
-              const name = declarator.id.name
-              exportNames.push({ local: name, exported: name })
-            }
-          } else if (node.declaration.type === 'FunctionDeclaration' ||
-            node.declaration.type === 'ClassDeclaration') {
-            // For function and class declarations, add export for the name
-            const name = node.declaration.id.name
-            exportNames.push({ local: name, exported: name })
-          }
-
-          // The declaration itself has already been added by the first loop
-        } else if (node.source) {
-          // Re-export: export { name1, name2 } from 'module'
-          const source = node.source.value
-          const resolvedPath = resolveImportPath(source)
-
-          for (const specifier of node.specifiers) {
-            if (specifier.type === 'ExportSpecifier') {
-              const local = specifier.local.name
-              const exported = specifier.exported.name
-
-              output.push(`exports.${exported} = require('${resolvedPath}').${local};`)
-            } else if (specifier.type === 'ExportNamespaceSpecifier') {
-              // export * as name from 'module'
-              const name = specifier.exported.name
-              output.push(`exports.${name} = require('${resolvedPath}');`)
-            }
-          }
-        } else {
-          // Named exports: export { name1, name2 as alias2 }
-          for (const specifier of node.specifiers) {
-            const local = specifier.local.name
-            const exported = specifier.exported.name
-            exportNames.push({ local, exported })
-          }
-        }
-      } else if (node.type === 'ExportAllDeclaration') {
-        // Re-export all: export * from 'module'
-        const source = node.source.value
-        const resolvedPath = resolveImportPath(source)
-        output.push(`Object.assign(exports, require('${resolvedPath}'));`)
-      }
-    }
-
-    // Add named exports
-    for (const { local, exported } of exportNames) {
-      output.push(`exports.${exported} = ${local};`)
-    }
-
-    // Add default export if any
-    if (defaultExport) {
-      output.push(`exports.default = ${defaultExport};`)
-      output.push(`if (typeof module !== 'undefined' && module.exports) {`)
-      output.push(`  module.exports = Object.assign(exports.default, exports);`)
-      output.push(`}`)
-    }
-
-    // If the code contains await statements and isn't already in an async function,
-    // wrap everything in an async IIFE
-    if (hasAwait && !code.includes('async function')) {
-      return `var exports = module.exports;
-
-(async function() {
-${output.join('\n')}
-})().catch(err => {
-  console.error('Error in async module:', err);
-  throw err;
-});`
-    }
-
-    return output.join('\n')
   }
 
-  try {
-    // Parse the input code to an AST with improved options for generator functions
-    const ast = acorn.parse(code, {
-      ecmaVersion: 2022,
-      sourceType: 'module',
-      allowAwaitOutsideFunction: true,
-      allowYieldOutsideFunction: true
-    })
-    // Transform the AST to CommonJS
-    return transform(ast)
-  } catch (err) {
-    console.error('Error parsing or transforming module:', err)
-    // Safe fallback: only remove 'export' and 'import' keywords, do not try to parse or assign export default
-    let processedCode = code
-      // Remove all 'export' keywords (keep the rest of the line)
-      .replace(/^\s*export\s+/gm, '')
-      // Remove all 'import' statements (side-effect imports)
-      .replace(/^\s*import\s+['"][^'"]+['"];?\s*$/gm, '')
+  // Start building the output
+  let output = ['var exports = module.exports;', '']
+  let exportNames = []
+  let defaultExport = null
 
-    // Collect named exports for the end
-    const namedExportMatches = [...code.matchAll(/export\s*\{([^}]+)\}/g)]
-    let exportLines = []
-    for (const match of namedExportMatches) {
-      const names = match[1].split(',')
-      for (const name of names) {
-        const parts = name.trim().split(/\s+as\s+/)
-        const local = parts[0].trim()
-        const exported = parts[1] ? parts[1].trim() : local
-        exportLines.push(`exports.${exported} = ${local};`)
+  // Process all non-export/import nodes first to maintain code order
+  for (const node of nonExportImportNodes) {
+    const originalCode = code.substring(node.start, node.end)
+    output.push(originalCode)
+  }
+
+  // Process export declarations with declarations (hoisted to top level)
+  for (const node of exportNamedDeclarations) {
+    // Skip empty export { } nodes
+    if (!node.declaration && node.specifiers && node.specifiers.length === 0) {
+      continue
+    }
+    if (node.declaration) {
+      // For export declarations (export function x() {}, export const x = 1)
+      const declarationCode = code.substring(node.declaration.start, node.declaration.end)
+      output.push(declarationCode)
+
+      if (node.declaration.type === 'VariableDeclaration') {
+        // For variable declarations, add exports for each variable
+        for (const declarator of node.declaration.declarations) {
+          if (declarator.id && declarator.id.name) {
+            const name = declarator.id.name
+            output.push(`exports.${name} = ${name};`)
+          }
+        }
+      } else if (node.declaration.type === 'FunctionDeclaration' ||
+        node.declaration.type === 'ClassDeclaration') {
+        // For function and class declarations, add export for the name
+        if (node.declaration.id && node.declaration.id.name) {
+          const name = node.declaration.id.name
+          output.push(`exports.${name} = ${name};`)
+        }
       }
     }
-    // Remove named export lines
-    processedCode = processedCode.replace(/export\s*\{[^}]+\};?/g, '')
-
-    return [
-      'var exports = module.exports;',
-      '',
-      processedCode.trim(),
-      '',
-      ...exportLines,
-      '',
-      'module.exports = exports;'
-    ].join('\n')
+    // Always handle specifiers for named exports (e.g. export { hello })
+    if (node.specifiers && node.specifiers.length) {
+      for (const specifier of node.specifiers) {
+        if (specifier.type === 'ExportSpecifier') {
+          const local = specifier.local.name
+          const exported = specifier.exported.name
+          output.push(`exports.${exported} = ${local};`)
+        }
+        // ExportNamespaceSpecifier is handled in the re-export section only
+      }
+    }
   }
+
+  // Process import declarations
+  for (const node of importDeclarations) {
+    const source = node.source.value
+    const resolvedPath = resolveImportPath(source)
+
+    // Handle different import types
+    if (node.specifiers.length === 0) {
+      // Side-effect import: import 'module'
+      output.push(`require('${resolvedPath}');`)
+    } else {
+      // Named and namespace imports
+      const importLines = []
+
+      // Default import: import defaultExport from 'module'
+      const defaultSpecifier = node.specifiers.find(s => s.type === 'ImportDefaultSpecifier')
+      if (defaultSpecifier) {
+        importLines.push(`const ${defaultSpecifier.local.name} = require('${resolvedPath}').default;`)
+      }
+
+      // Namespace import: import * as name from 'module'
+      const namespaceSpecifier = node.specifiers.find(s => s.type === 'ImportNamespaceSpecifier')
+      if (namespaceSpecifier) {
+        importLines.push(`const ${namespaceSpecifier.local.name} = require('${resolvedPath}');`)
+      }
+
+      // Named imports: import { export1, export2 as alias2 } from 'module'
+      const namedSpecifiers = node.specifiers.filter(s => s.type === 'ImportSpecifier')
+      if (namedSpecifiers.length > 0) {
+        const bindings = namedSpecifiers
+          .map(s => {
+            const imported = s.imported.name
+            const local = s.local.name
+            return imported === local ? local : `${imported}: ${local}`
+          })
+          .join(', ')
+
+        importLines.push(`const { ${bindings} } = require('${resolvedPath}');`)
+      }
+
+      output.push(importLines.join('\n'))
+    }
+  }
+
+  // Process export-from declarations (re-exports)
+  for (const node of exportNamedDeclarations) {
+    if (node.source) {
+      // Re-export: export { name1, name2 } from 'module'
+      const source = node.source.value
+      const resolvedPath = resolveImportPath(source)
+      const moduleName = `_mod${exportNamedDeclarations.indexOf(node)}`
+
+      output.push(`const ${moduleName} = require('${resolvedPath}');`)
+
+      for (const specifier of node.specifiers) {
+        if (specifier.type === 'ExportSpecifier') {
+          const local = specifier.local.name
+          const exported = specifier.exported.name
+          output.push(`exports.${exported} = ${moduleName}.${local};`)
+        } else if (specifier.type === 'ExportNamespaceSpecifier') {
+          // export * as name from 'module'
+          const name = specifier.exported.name
+          output.push(`exports.${name} = ${moduleName};`)
+        }
+      }
+    }
+  }
+
+  // Process export * from 'module' declarations
+  for (const node of exportAllDeclarations) {
+    const source = node.source.value
+    const resolvedPath = resolveImportPath(source)
+    const moduleName = `_mod${exportAllDeclarations.indexOf(node)}`
+
+    output.push(`const ${moduleName} = require('${resolvedPath}');`)
+    output.push(`Object.assign(exports, ${moduleName});`)
+  }
+
+  // Process default exports
+  for (const node of exportDefaultDeclarations) {
+    if (node.declaration.type === 'Identifier') {
+      // export default existingVariable
+      defaultExport = node.declaration.name
+    } else {
+      // export default expression or anonymous function/class
+      const declarationCode = code.substring(node.declaration.start, node.declaration.end)
+
+      // For anonymous declarations, create a named variable
+      const defaultVarName = '_default'
+      output.push(`const ${defaultVarName} = ${declarationCode};`)
+      defaultExport = defaultVarName
+    }
+  }
+
+  // Add named exports at the end of the file
+  for (const { local, exported } of exportNames) {
+    output.push(`exports.${exported} = ${local};`)
+  }
+
+  // Add default export
+  if (defaultExport) {
+    output.push(`exports.default = ${defaultExport};`)
+
+    // Check if the default export is a function or class that we want to make callable
+    if (code.includes(`function ${defaultExport}`) || code.includes(`class ${defaultExport}`)) {
+      output.push(`module.exports = Object.assign(exports.default, exports);`)
+    }
+  }
+
+  return output.join('\n')
 }

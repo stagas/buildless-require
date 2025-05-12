@@ -12,8 +12,13 @@ describe('require', () => {
   })
 
   it('should resolve paths correctly', () => {
-    const path = require.resolve('./test.js', location.href)
-    assert(path.endsWith('/test.js'), 'should resolve relative paths')
+    const path = require.resolve('./fixtures/test.js', location.href)
+    assert(path.endsWith('/fixtures/test.js'), 'should resolve relative paths')
+  })
+
+  it('should work with multiline comment', () => {
+    const mod = require('./fixtures/multiline-comment.js')
+    assert(mod.hello === 'world', 'should handle multiline comments')
   })
 
   it('should work with importmap modules', () => {

@@ -7,7 +7,7 @@
 
   require.paths = ['/node_modules']
 
-  require.debug = false
+  require.debug = true
 
   require.modules = Object.create(null)
 
