@@ -60,18 +60,18 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
   let exportNames = []
   let defaultExport = null
 
+  // Track modules that have been imported to avoid duplicates
+  const importedModules = new Map()
+
   // Process all non-export/import nodes first to maintain code order
   for (const node of nonExportImportNodes) {
     const originalCode = code.substring(node.start, node.end)
+    console.log('Processing non-export/import node:', originalCode)
     output.push(originalCode)
   }
 
   // Process export declarations with declarations (hoisted to top level)
   for (const node of exportNamedDeclarations) {
-    // Skip empty export { } nodes
-    if (!node.declaration && node.specifiers && node.specifiers.length === 0) {
-      continue
-    }
     if (node.declaration) {
       // For export declarations (export function x() {}, export const x = 1)
       const declarationCode = code.substring(node.declaration.start, node.declaration.end)
@@ -94,8 +94,9 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
         }
       }
     }
-    // Always handle specifiers for named exports (e.g. export { hello })
-    if (node.specifiers && node.specifiers.length) {
+    // Only handle specifiers for named exports (export { hello }) if there's no source
+    // This ensures we don't emit invalid references to re-exported variables
+    if (node.specifiers && node.specifiers.length && !node.source) {
       for (const specifier of node.specifiers) {
         if (specifier.type === 'ExportSpecifier') {
           const local = specifier.local.name
@@ -153,20 +154,24 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
   // Process export-from declarations (re-exports)
   for (const node of exportNamedDeclarations) {
     if (node.source) {
-      // Re-export: export { name1, name2 } from 'module'
       const source = node.source.value
       const resolvedPath = resolveImportPath(source)
-      const moduleName = `_mod${exportNamedDeclarations.indexOf(node)}`
-
-      output.push(`const ${moduleName} = require('${resolvedPath}');`)
-
+      // Ensure unique module variable for each import
+      let moduleName
+      if (importedModules.has(resolvedPath)) {
+        moduleName = importedModules.get(resolvedPath)
+      } else {
+        moduleName = `_mod${importedModules.size}_${Math.random().toString(36).substring(2, 8)}`
+        importedModules.set(resolvedPath, moduleName)
+        output.push(`const ${moduleName} = require('${resolvedPath}');`)
+      }
       for (const specifier of node.specifiers) {
         if (specifier.type === 'ExportSpecifier') {
           const local = specifier.local.name
           const exported = specifier.exported.name
           output.push(`exports.${exported} = ${moduleName}.${local};`)
         } else if (specifier.type === 'ExportNamespaceSpecifier') {
-          // export * as name from 'module'
+          // export * as foo from 'module'
           const name = specifier.exported.name
           output.push(`exports.${name} = ${moduleName};`)
         }
@@ -174,14 +179,28 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
     }
   }
 
-  // Process export * from 'module' declarations
+  // Process export * from 'module' declarations - use unique module names
   for (const node of exportAllDeclarations) {
     const source = node.source.value
     const resolvedPath = resolveImportPath(source)
-    const moduleName = `_mod${exportAllDeclarations.indexOf(node)}`
 
-    output.push(`const ${moduleName} = require('${resolvedPath}');`)
-    output.push(`Object.assign(exports, ${moduleName});`)
+    // Check if we've already imported this module
+    let moduleName
+    if (importedModules.has(resolvedPath)) {
+      moduleName = importedModules.get(resolvedPath)
+    } else {
+      moduleName = `_mod${importedModules.size}_${Math.random().toString(36).substring(2, 8)}`
+      importedModules.set(resolvedPath, moduleName)
+      output.push(`const ${moduleName} = require('${resolvedPath}');`)
+    }
+
+    // Handle `export * as foo from 'module'`
+    if (node.exported) {
+      output.push(`exports.${node.exported.name} = ${moduleName};`)
+    } else {
+      // Regular `export * from 'module'`
+      output.push(`Object.assign(exports, ${moduleName});`)
+    }
   }
 
   // Process default exports
