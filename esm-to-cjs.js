@@ -26,7 +26,18 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
     return importPath
   }
 
-  // Parse the input code to an AST
+  // Track if import.meta.url is used in the code
+  let hasImportMetaUrl = false
+
+  // Check if the code contains import.meta.url
+  if (code.includes('import.meta.url')) {
+    hasImportMetaUrl = true
+
+    // Replace import.meta.url with _import.meta.url
+    code = code.replace(/import\.meta\.url/g, '_import.meta.url')
+  }
+
+  // Parse the input code to an AST (after replacing import.meta.url)
   const ast = acorn.parse(code, {
     ecmaVersion: 2022,
     sourceType: 'module',
@@ -61,7 +72,15 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
   }
 
   // Start building the output
-  let output = ['var exports = module.exports;', '']
+  let output = ['var exports = module.exports;']
+
+  // Add _import.meta.url definition if it was used in the code
+  if (hasImportMetaUrl) {
+    output.push(`const _import = { meta: { url: '${currentPath || ''}' } };`)
+  }
+
+  output.push('')  // Add a blank line
+
   let exportNames = []
   let defaultExport = null
 
@@ -141,7 +160,7 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
                 // for renamed properties it's the local binding name
                 const exportedName = property.value.type === 'Identifier' ?
                   property.value.name : // For renamed exports (foo: bar), use the value name
-                  property.key.name;    // For simple exports (foo), use the key name
+                  property.key.name    // For simple exports (foo), use the key name
 
                 output.push(`exports.${exportedName} = ${exportedName};`)
               }
@@ -270,8 +289,9 @@ module.exports = function esmToCjs(code, moduleName, currentPath) {
   if (/\bawait\b/.test(code)) {
     return [
       'var exports = module.exports;',
+      hasImportMetaUrl ? `const _import = { meta: { url: '${currentPath || ''}' } };` : '',
       '(async () => {',
-      output.slice(1).join('\n'), // skip duplicate var exports = module.exports;
+      output.slice(hasImportMetaUrl ? 2 : 1).join('\n'), // skip the headers we already added
       '})().catch(e => { throw e; });'
     ].join('\n')
   }

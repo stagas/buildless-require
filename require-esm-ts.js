@@ -5,11 +5,21 @@ require.transforms.push({
   transform: m => esmToCjs(m.body, m.name, m.path)
 })
 
-// add TypeScript type-stripping transform
-const amaro = require('amaro') // amaro is an ESM module
+// add support for TypeScript
+const ts = require('@swc/wasm-web')
 require.transforms.unshift({
-  test: m => m.path.endsWith('.ts'),
-  transform: m => amaro.transformSync(m.body).code
+  test: m => m.path.endsWith('.ts') || m.path.endsWith('.tsx'),
+  transform: m => ts.transformSync(m.body, {
+    filename: m.path.split('/').pop(),
+    jsc: {
+      transform: {
+        react: {
+          runtime: 'automatic',
+          importSource: 'preact'
+        }
+      }
+    },
+  }).code
 })
 
 // run all TypeScript inline script tags
@@ -20,7 +30,8 @@ else {
   runTypeScriptScripts()
 }
 
-function runTypeScriptScripts() {
+async function runTypeScriptScripts() {
+  await ts.default()
   document.querySelectorAll('script[type="text/typescript"]').forEach(script => {
     if (script.src) {
       require(script.src)

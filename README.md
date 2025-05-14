@@ -9,60 +9,26 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Buildless CJS+ESM+TS+Importmaps for the browser.</title>
-  <link rel="stylesheet" href="style.css">
   <script type="importmap">
     {
       "imports": {
-        "amaro": "https://esm.sh/amaro",
-        "confetti": "https://esm.sh/canvas-confetti@1.6.0",
-        "confetti.ts": "https://jsr.io/@adam/confetti/2.0.0/src/confetti/confetti.ts",
-        "three": "https://unpkg.com/three@0.174.0/build/three.cjs"
+        "@swc/wasm-web": "https://esm.sh/@swc/wasm-web",
+        "@jsxRuntime": "https://esm.sh/preact",
+        "preact": "https://esm.sh/preact",
+        "preact/hooks": "https://esm.sh/preact/hooks",
+        "preact/jsx-runtime": "https://esm.sh/preact/jsx-runtime",
+        "confetti": "https://esm.sh/canvas-confetti"
       }
     }
   </script>
 </head>
 
 <body>
+  <div id="app"></div>
   <script src="require.js"></script>
-
-  <!-- Helper script that enables ESM-to-CJS and TypeScript transforms -->
-  <!-- <script src="require-esm-ts.js"></script> -->
-
-  <!-- <script src="./client.ts" type="text/typescript"></script> -->
-
-  <!-- <script type="text/typescript">
-    import * as confetti from 'confetti.ts'
-    confetti.throwConfetti()
-  </script> -->
-
-  <script>
-    // `three` is a CJS module
-    const THREE = require('three')
-    console.log(THREE)
-
-    // add ESM-to-CJS transform
-    const esmToCjs = require('./esm-to-cjs.js')
-    require.transforms.push({
-      test: m => /\b(?:import|export)\b/.test(m.body),
-      transform: m => esmToCjs(m.body, m.name, m.path)
-    })
-
-    // `confetti` is an ESM module
-    const confetti = require('confetti')
-    confetti.default()
-
-    // add TypeScript type-stripping transform
-    const amaro = require('amaro') // amaro is an ESM module
-    require.transforms.unshift({
-      test: m => m.path.endsWith('.ts'),
-      transform: m => amaro.transformSync(m.body).code
-    })
-
-    // `confetti.ts` is a TypeScript module
-    const confettiTs = require('confetti.ts')
-    confettiTs.throwConfetti()
-  </script>
-
+  <script src="require-esm-ts.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script src="client.tsx" type="text/typescript"></script>
 </body>
 
 </html>
